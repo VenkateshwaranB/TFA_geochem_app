@@ -5,3 +5,6 @@ openpyxl
 matplotlib
 seaborn
 factor-analyzer
+pytest
+pytest-mock
+pytest-cov
