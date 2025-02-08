@@ -8,3 +8,4 @@ factor-analyzer
 pytest
 pytest-mock
 pytest-cov
+scipy
