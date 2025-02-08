@@ -560,7 +560,7 @@ def main():
     st.set_page_config(page_title="TFA & CARTPAI Analysis", page_icon=":bar_chart:")
 
     # Load logo (replace 'logo.png' with your actual logo path)
-    st.image("logo.png", use_column_width=True) 
+    st.image("TFA Logo.png", use_column_width=True) 
 
     # File upload
     uploaded_file = st.file_uploader("Upload Excel or CSV file", type=["xlsx", "csv"])
