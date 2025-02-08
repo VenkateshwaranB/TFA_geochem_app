@@ -5,3 +5,4 @@ factor_analyzer
 scikit-learn
 networkx
 streamlit
+openpyxl
