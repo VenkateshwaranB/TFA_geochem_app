@@ -1,8 +1,12 @@
 pandas
 numpy
 matplotlib
+seaborn
 factor_analyzer
 scikit-learn
 networkx
 streamlit
 openpyxl
+plotly
+xlsxwriter
+scipy
