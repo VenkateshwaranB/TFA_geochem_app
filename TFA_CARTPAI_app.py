@@ -1,24 +1,31 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from random import randint
-from scipy import stats
-from copy import deepcopy
 import matplotlib.pyplot as plt
+import seaborn as sns
+import io
 from sklearn.preprocessing import StandardScaler
 from factor_analyzer import FactorAnalyzer, calculate_bartlett_sphericity, calculate_kmo
-
 from sklearn.tree import DecisionTreeClassifier, export_text
-import networkx as nx
+import plotly.express as px
+import plotly.graph_objects as go
 
-class DecisionTreePAI:
+# Define the factor classes for categorization
+FACTOR_CLASSES = {
+    'VHIGH': (0.90, float('inf')),
+    'HIGH': (0.80, 0.90),
+    'MEDIUM': (0.25, 0.80),
+    'LOW': (0.01, 0.25),
+    'VLOW': (float('-inf'), 0.01)
+}
+
+class ClassLevelPAI:
     def __init__(self):
         self.class_mappings = {}
-        self.num_classes = 0
         self.attributes = []
-        self.tree_structure = {}
         self.categorical_mappings = {}
         self.reverse_mappings = {}
+        self.class_levels = ['VHIGH', 'HIGH', 'MEDIUM', 'LOW', 'VLOW']
         
     def create_categorical_mappings(self, data):
         """Create mappings for categorical values to integers"""
@@ -27,11 +34,11 @@ class DecisionTreePAI:
         
         # Standard order for categorical values
         value_order = {
-            'VL': 0,  # Very Low
-            'L': 1,   # Low
-            'M': 2,   # Medium
-            'H': 3,   # High
-            'VH': 4   # Very High
+            'VLOW': 0,
+            'LOW': 1,
+            'MEDIUM': 2,
+            'HIGH': 3,
+            'VHIGH': 4
         }
         
         for column in self.attributes:
@@ -39,21 +46,9 @@ class DecisionTreePAI:
             mapping = {}
             reverse_mapping = {}
             
-            # Sort values based on their level (VL, L, M, H, VH)
+            # Sort values based on their level (remove first character which is the factor prefix)
             def get_value_level(x):
-                # Extract the level part (last part of the string)
-                level = ''.join(c for c in x if c.isalpha())[1:]  # Skip first letter
-                if level == 'VLOW':
-                    return 'VL'
-                elif level == 'LOW':
-                    return 'L'
-                elif level == 'MEDIUM':
-                    return 'M'
-                elif level == 'HIGH':
-                    return 'H'
-                elif level == 'VHIGH':
-                    return 'VH'
-                return level
+                return x[1:] if len(x) > 1 else x
 
             # Sort unique values based on their levels
             sorted_values = sorted(unique_values, key=lambda x: value_order.get(get_value_level(x), 999))
@@ -75,42 +70,36 @@ class DecisionTreePAI:
             numeric_data[column] = numeric_data[column].map(self.categorical_mappings[column])
         return numeric_data
         
-    def auto_detect_classes(self, data):
-        """Automatically detect classes for each attribute"""
-        self.class_mappings = {}
-        for attr in self.attributes:
-            unique_values = sorted(data[attr].unique())
-            class_dict = {}
-            for i, value in enumerate(unique_values, 1):
-                class_name = f"class_{self.attributes.index(attr)+1}{i}"
-                class_dict[class_name] = value
-            self.class_mappings[attr] = class_dict
-        self.num_classes = max(len(values) for values in self.class_mappings.values())
-
     def gini_index_df(self, target, feature, uniques):
         """Calculate Gini index and return detailed DataFrame"""
         gini_data = []
         weighted_gini = 0
-        total_count = feature.count()
-        data = pd.concat([pd.DataFrame(target.values.reshape((target.shape[0], 1))), feature], axis=1)
+        total_count = len(feature)
+        
+        # Ensure target and feature are properly aligned
+        data = pd.DataFrame({'target': target, 'feature': feature})
         
         class_distributions = {}
         for value in uniques:
-            value_count = feature[feature == value].count()
+            subset = data[data['feature'] == value]
+            value_count = len(subset)
+            
             if value_count > 0:
                 gini = 0
                 class_dist = {}
+                
+                # Count occurrences of each class value for this feature value
                 for class_val in np.unique(target):
-                    class_count = data.iloc[:,0][(data.iloc[:,0] == class_val) & (data.iloc[:,1] == value)].count()
-                    class_dist[class_val] = class_count / value_count if value_count > 0 else 0
-                    if class_count > 0:
-                        gini += (class_count / value_count) ** 2
-                        
+                    class_count = sum(subset['target'] == class_val)
+                    class_proportion = class_count / value_count
+                    class_dist[class_val] = class_proportion
+                    gini += class_proportion ** 2
+                
                 gini = 1 - gini
                 weighted_gini += gini * (value_count / total_count)
                 
                 # Convert numeric value back to categorical for display
-                original_value = self.reverse_mappings[feature.name][value]
+                original_value = self.reverse_mappings.get(feature.name, {}).get(value, value)
                 gini_data.append({
                     'Value': original_value,
                     'Numeric_Value': value,
@@ -129,155 +118,65 @@ class DecisionTreePAI:
         
         return pd.DataFrame(gini_data), class_distributions, weighted_gini
 
-    def calculate_pai(self, gini_results):
-        """Calculate PAI for all attribute combinations and their weighted values"""
-        pai_data = []
-        cluster_pai = {}
-        
-        # Get all attribute combinations for PAI calculation
-        for i in range(len(self.attributes)):
-            for j in range(i + 1, len(self.attributes)):
-                attr1 = self.attributes[i]
-                attr2 = self.attributes[j]
-                cluster_key = f"{attr1}-{attr2}"
-                
-                # Get all values for each attribute from Gini results
-                values1 = gini_results[attr1][0][gini_results[attr1][0]['Value'] != 'Weighted_Gini']
-                values2 = gini_results[attr2][0][gini_results[attr2][0]['Value'] != 'Weighted_Gini']
-                
-                cluster_pais = []
-                
-                # Calculate PAI for each combination of values
-                for _, row1 in values1.iterrows():
-                    for _, row2 in values2.iterrows():
-                        value1 = row1['Value']
-                        value2 = row2['Value']
-                        gini1 = row1['Gini']
-                        gini2 = row2['Gini']
-                        
-                        # Calculate individual PAI
-                        pai = (gini1 * gini_results[attr1][2] + gini2 * gini_results[attr2][2]) / 2
-                        cluster_pais.append(pai)
-                        
-                        pai_data.append({
-                            'Attribute1': attr1,
-                            'Attribute2': attr2,
-                            'Value1': value1,
-                            'Value2': value2,
-                            'Gini1': gini1,
-                            'Gini2': gini2,
-                            'PAI': pai
-                        })
-                
-                # Calculate weighted PAI for this cluster
-                sample_counts1 = values1['Sample_Count'].sum()
-                sample_counts2 = values2['Sample_Count'].sum()
-                total_samples = sample_counts1 + sample_counts2
-                
-                weighted_pai = sum(cluster_pais) / len(cluster_pais) * (total_samples / (total_samples + 1))
-                cluster_pai[cluster_key] = weighted_pai
-        
-        return pd.DataFrame(pai_data), pd.Series(cluster_pai, name='Weighted_PAI')
-
-    def validate_gini_with_sklearn(self, data, target_column):
-        """Validate Gini calculations against sklearn's implementation"""
-        validation_results = {}
-        
-        numeric_data = self.convert_to_numeric(data)
-        
+    def calculate_class_level_pai(self, gini_results):
+        """Calculate PAI values at class level (VLOW, LOW, MEDIUM, HIGH, VHIGH) across factors"""
+        # Extract class levels from the data
+        class_levels = set()
         for attr in self.attributes:
-            # Calculate our Gini
-            uniques = numeric_data[attr].unique()
-            our_gini_df, _, our_weighted_gini = self.gini_index_df(
-                data[target_column],
-                numeric_data[attr],
-                uniques
-            )
+            for value in gini_results[attr][0]['Value']:
+                if value != 'Weighted_Gini':
+                    # Extract class level (remove first character which is the factor prefix)
+                    level = value[1:] if len(value) > 1 else value
+                    class_levels.add(level)
+        
+        # Initialize PAI data
+        pai_data = {}
+        for level in class_levels:
+            pai_data[level] = {'factors': [], 'gini_values': [], 'weighted_gini': []}
+        
+        # Collect Gini values for each class level across factors
+        for attr in self.attributes:
+            attr_prefix = attr[0] if len(attr) > 0 else ''  # Get first character as prefix (F, S, T, etc.)
             
-            # Calculate sklearn's Gini
-            dt = DecisionTreeClassifier(max_depth=1, criterion='gini')
-            dt.fit(numeric_data[attr].values.reshape(-1, 1), data[target_column])
-            
-            sklearn_gini = dt.tree_.impurity[0]
-            
-            validation_results[attr] = {
-                'our_weighted_gini': our_weighted_gini,
-                'sklearn_gini': sklearn_gini,
-                'difference': abs(our_weighted_gini - sklearn_gini)
-            }
-            
-        return pd.DataFrame(validation_results).T
-
-    def plot_decision_tree(self, results):
-        """Plot the decision tree with Gini and PAI values"""
-        G = nx.Graph()
+            for _, row in gini_results[attr][0].iterrows():
+                if row['Value'] != 'Weighted_Gini':
+                    value = row['Value']
+                    # Extract class level (remove first character)
+                    level = value[1:] if len(value) > 1 else value
+                    
+                    if level in pai_data:
+                        pai_data[level]['factors'].append(attr)
+                        pai_data[level]['gini_values'].append(row['Gini'])
+                        pai_data[level]['weighted_gini'].append(gini_results[attr][2])
         
-        # Create root node
-        G.add_node("Root", pos=(0.5, 1))
+        # Calculate PAI for each class level
+        pai_results = []
+        for level, data in pai_data.items():
+            if len(data['factors']) > 0:
+                # Calculate PAI as average of (Gini * WeightedGini) for this class level
+                pai_components = []
+                for g, wg in zip(data['gini_values'], data['weighted_gini']):
+                    pai_components.append(g * wg)
+                
+                pai = sum(pai_components) / len(data['factors'])
+                
+                pai_results.append({
+                    'Class_Level': level,
+                    'Factors': ', '.join(data['factors']),
+                    'Factor_Count': len(data['factors']),
+                    'Gini_Values': data['gini_values'],
+                    'PAI': pai
+                })
         
-        # Add attribute nodes
-        x_positions = np.linspace(0, 1, len(self.attributes))
-        for i, attr in enumerate(self.attributes):
-            gini_value = results['gini_results'][attr][2]  # Get weighted Gini
-            node_label = f"{attr}\nGini: {gini_value:.3f}"
-            G.add_node(node_label, pos=(x_positions[i], 0.7))
-            G.add_edge("Root", node_label)
-            
-            # Add value nodes for this attribute
-            gini_df = results['gini_results'][attr][0]
-            values = gini_df[gini_df['Value'] != 'Weighted_Gini']['Value']
-            num_values = len(values)
-            if num_values > 0:
-                value_x_positions = np.linspace(x_positions[i]-0.1, x_positions[i]+0.1, num_values)
-                for j, value in enumerate(values):
-                    value_gini = gini_df[gini_df['Value'] == value]['Gini'].values[0]
-                    value_label = f"{value}\nGini: {value_gini:.3f}"
-                    G.add_node(value_label, pos=(value_x_positions[j], 0.4))
-                    G.add_edge(node_label, value_label)
-        
-        # Add PAI values as edge labels
-        pai_labels = {}
-        for _, row in results['pai_results'].iterrows():
-            edge = (f"{row['Attribute1']}\nGini: {results['gini_results'][row['Attribute1']][2]:.3f}", 
-                f"{row['Attribute2']}\nGini: {results['gini_results'][row['Attribute2']][2]:.3f}")
-            if edge not in pai_labels:
-                pai_labels[edge] = []
-            pai_label = f"{row['Value1']}-{row['Value2']}: {row['PAI']:.3f}"
-            pai_labels[edge].append(pai_label)
-        
-        # Add weighted cluster PAI values
-        for (attr1, attr2), weighted_pai in results['cluster_pai'].items():
-            edge = (f"{attr1}\nGini: {results['gini_results'][attr1][2]:.3f}", 
-                f"{attr2}\nGini: {results['gini_results'][attr2][2]:.3f}")
-            if edge in pai_labels:
-                pai_labels[edge].append(f"Weighted PAI: {weighted_pai:.3f}")
-        
-        # Draw the graph
-        pos = nx.get_node_attributes(G, 'pos')
-        plt.figure(figsize=(15, 10))
-        nx.draw(G, pos, with_labels=True, node_color='lightblue', 
-                node_size=3000, font_size=8, font_weight='bold')
-        
-        # Add PAI values as edge labels
-        edge_labels = {}
-        for edge, pais in pai_labels.items():
-            edge_labels[edge] = '\n'.join(pais)
-        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=6)
-        
-        plt.title("Decision Tree with Gini and PAI Values")
-        plt.axis('off')
-        return plt
+        return pd.DataFrame(pai_results)
 
     def fit(self, data, target_column):
-        """Fit the decision tree and calculate all metrics"""
+        """Fit the model and calculate all metrics using class-level PAI approach"""
         self.attributes = [col for col in data.columns if col != target_column]
         
         # Create mappings and convert data to numeric
         self.create_categorical_mappings(data)
         numeric_data = self.convert_to_numeric(data)
-        
-        # Automatically detect classes using numeric data
-        self.auto_detect_classes(numeric_data)
         
         # Calculate Gini index for each attribute
         gini_results = {}
@@ -290,44 +189,33 @@ class DecisionTreePAI:
             )
             gini_results[attr] = (gini_df, class_dist, weighted_gini)
         
-        # Calculate PAI and weighted cluster PAI
-        pai_df, cluster_pai = self.calculate_pai(gini_results)
+        # Calculate class-level PAI
+        pai_df = self.calculate_class_level_pai(gini_results)
         
-        # Validate Gini calculations
-        gini_validation = self.validate_gini_with_sklearn(data, target_column)
+        # Calculate total PAI
+        total_pai = pai_df['PAI'].sum()
         
         return {
             'gini_results': gini_results,
             'pai_results': pai_df,
-            'cluster_pai': cluster_pai,
-            'gini_validation': gini_validation,
+            'total_pai': total_pai,
             'categorical_mappings': self.categorical_mappings
         }
 
-
-FACTOR_CLASSES = {
-    'VHIGH': (0.90, float('inf')),
-    'HIGH': (0.80, 0.90),
-    'MEDIUM': (0.25, 0.80),
-    'LOW': (0.01, 0.25),
-    'VLOW': (float('-inf'), 0.01)
-}
-
 class ChemicalAnalysis:
     def __init__(self):
-        
         self.chemical_elements = None
         self.factor_categories = FACTOR_CLASSES
-        self.attributes = []  # Added attributes list
-        self.num_factors = None  # Store the number of factors globally
+        self.attributes = []
+        self.num_factors = None
 
     def validate_data(self, df):
         """Validate input dataframe"""
         if df.empty:
             raise ValueError("Empty dataframe provided")
-        if df.shape[0] < 2:  # Header + at least one row
+        if df.shape[0] < 2:
             raise ValueError("Insufficient data rows")
-        if df.shape[1] < 2:  # Elements + at least one sample
+        if df.shape[1] < 2:
             raise ValueError("Insufficient columns")
         return True
     
@@ -349,6 +237,7 @@ class ChemicalAnalysis:
         return 'VLOW'
 
     def load_chemical_elements(self, df):
+        """Load chemical elements from the dataframe"""
         try:
             # Ensure dataframe has content
             if df is None or df.empty or df.shape[0] < 2:
@@ -357,31 +246,31 @@ class ChemicalAnalysis:
             # Get header row (sample numbers)
             header = df.columns.tolist()[1:]  # Skip first column
            
-            # Get chemical elements (first column, skip header)
-            self.chemical_elements = df.iloc[0:, 0].tolist()
+            # Get chemical elements (first column)
+            self.chemical_elements = df.iloc[:, 0].tolist()
             
-            # Extract sample data (skip first column and header row)
-            data = df.iloc[0:, 1:].values
+            # Extract sample data (skip first column)
+            data = df.iloc[:, 1:].values
             
-
             # Create processed dataframe
             processed_df = pd.DataFrame(
                 data=data,
                 index=self.chemical_elements,
-                columns=[f'Sample_{i+1}' for i in range(len(header))]
+                columns=[f'S{i+1}' for i in range(len(header))]
             )
             
             # Validate final structure
             if processed_df.empty:
                 raise ValueError("Failed to process data")
                 
-            return processed_df  # Transpose for analysis
+            return processed_df.T  # Transpose for analysis
         
         except Exception as e:
-            print(f"Error in data loading: {str(e)}")
+            st.error(f"Error in data loading: {str(e)}")
             return pd.DataFrame()
 
     def preprocess_chemical_data(self, df):
+        """Preprocess the chemical data"""
         try:
             # Load and validate data
             processed_df = self.load_chemical_elements(df)
@@ -390,8 +279,6 @@ class ChemicalAnalysis:
                 
             # Scale the data
             scaler = StandardScaler()
-            processed_df = processed_df.T
-            
             scaled_data = scaler.fit_transform(processed_df)
             scaled_df = pd.DataFrame(
                 scaled_data,
@@ -409,32 +296,18 @@ class ChemicalAnalysis:
             }
             
         except Exception as e:
-            print(f"Error in preprocessing: {str(e)}")
+            st.error(f"Error in preprocessing: {str(e)}")
             return pd.DataFrame(), {}
 
-    def perform_factor_analysis(self, scaled_df):
+    def perform_factor_analysis(self, scaled_df, num_factors=3):
+        """Perform factor analysis with the specified number of factors"""
         try:
-            # Initial analysis for scree plot
-            fa_initial = FactorAnalyzer(rotation=None)
-            fa_initial.fit(scaled_df.T)
-            ev, v = fa_initial.get_eigenvalues()
-            
-            # Plot scree
-            self.plot_scree(ev)
-            
             # Set number of factors
-            if self.num_factors is None:
-                n_factors = len([x for x in ev if x > 1])
-                print(f"Suggested number of factors: {n_factors}")
-                self.num_factors = int(input("Enter number of factors to use: "))
+            self.num_factors = num_factors
             
             # Create factor analysis object and perform factor analysis
             fa = FactorAnalyzer(self.num_factors, rotation="varimax", method='minres', use_smc=True)
             fa.fit(scaled_df)
-
-            FactorAnalyzer(bounds=(0.005, 1), impute='median', is_corr_matrix=True,
-                        method='minres', n_factors=self.num_factors, rotation='varimax',
-                        rotation_kwargs={}, use_smc=True)
 
             # Get results
             loadings = pd.DataFrame(
@@ -452,33 +325,11 @@ class ChemicalAnalysis:
             return scores, loadings
 
         except Exception as e:
-            print(f"Error in factor analysis: {str(e)}")
+            st.error(f"Error in factor analysis: {str(e)}")
             return pd.DataFrame(), pd.DataFrame()
-            
-        
-    def plot_scree(self, eigenvalues):
-        """Plot scree plot"""
-        plt.figure(figsize=(10, 6))
-        plt.plot(range(1, len(eigenvalues) + 1), eigenvalues, 'bo-')
-        plt.title('Scree Plot')
-        plt.xlabel('Factors')
-        plt.ylabel('Eigenvalue')
-        plt.axhline(y=1, color='r', linestyle='--')
-        plt.grid(True)
-        plt.show()
 
     def generate_labels(self, categorized_scores):
-        """
-        Generate binary labels based on factor class levels for each column independently.
-        Once a row is marked as 'Yes', it maintains that label even if subsequent factors
-        would mark it as 'No'.
-        
-        Parameters:
-        categorized_scores (pd.DataFrame): DataFrame with categorized scores for each factor
-        
-        Returns:
-        pd.Series: Binary labels ('Yes'/'No') for each row
-        """
+        """Generate binary labels based on factor class levels"""
         # Define class levels from highest to lowest
         class_levels = ['VHIGH', 'HIGH', 'MEDIUM', 'LOW', 'VLOW']
         
@@ -509,12 +360,11 @@ class ChemicalAnalysis:
                 for idx, class_val in enumerate(factor_classes):
                     if class_val == max_class:
                         labels[idx] = 'Yes'
-                    # If this factor would mark it as 'No', we keep any existing 'Yes'
-                    # (do nothing if it's already 'Yes')
         
         return pd.Series(labels, index=categorized_scores.index)
 
-    def process_sheet(self, df):
+    def process_sheet(self, df, num_factors=3):
+        """Process a single sheet/depth of data"""
         try:
             # Preprocess data
             scaled_df, tests = self.preprocess_chemical_data(df)
@@ -523,102 +373,275 @@ class ChemicalAnalysis:
             self.attributes = scaled_df.columns.tolist()
         
             # Factor Analysis
-            scores, loadings = self.perform_factor_analysis(scaled_df)
+            scores, loadings = self.perform_factor_analysis(scaled_df, num_factors)
             
-            # Categorize scores
+            # Categorize loadings
             categorized = self.categorize_scores(loadings)
          
             # Generate labels
             labels = self.generate_labels(categorized)
             categorized['Label'] = labels
             
+            # Calculate PAI
+            pai_model = ClassLevelPAI()
+            pai_results = pai_model.fit(categorized, 'Label')
+            
             return {
                 'factor_analysis': {'scores': scores, 'loadings': loadings, 'tests': tests},
                 'elements': self.chemical_elements,
                 'categorized': categorized,
-                'labels': labels
+                'labels': labels,
+                'pai_results': pai_results
             }
             
         except Exception as e:
-            print(f"Error processing sheet: {str(e)}")
+            st.error(f"Error processing sheet: {str(e)}")
             return None
 
-    def analyze_excel(self, excel_path):
-        """Process Excel file with chemical composition data"""
-        try:
-            # Read Excel file
-            df = pd.read_excel(excel_path, sheet_name=0)  # Read only the first sheet      
-            # Validate data structure
-            if self.validate_data(df):
-                return self.process_sheet(df)
-            
-        except Exception as e:
-            print(f"Error reading Excel file: {str(e)}")
-            return {}
+    def analyze_multiple_depths(self, dfs, num_factors=3):
+        """Process multiple sheets/depths and compare results"""
+        all_results = []
         
+        for i, df in enumerate(dfs):
+            st.write(f"Processing Depth {i+1}...")
+            results = self.process_sheet(df, num_factors)
+            if results:
+                results['depth'] = i + 1
+                all_results.append(results)
+        
+        return all_results
+        
+    def plot_factor_loadings(self, loadings, depth_label=""):
+        """Plot factor loadings heatmap"""
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(loadings, annot=True, cmap='coolwarm', fmt='.2f')
+        plt.title(f'Factor Loadings {depth_label}')
+        plt.tight_layout()
+        return plt
+
+    def plot_pai_comparison(self, all_results):
+        """Plot PAI values across depths for each class level"""
+        # Extract PAI values from all results
+        pai_data = []
+        for result in all_results:
+            depth = result['depth']
+            for _, row in result['pai_results']['pai_results'].iterrows():
+                pai_data.append({
+                    'Depth': depth,
+                    'Class_Level': row['Class_Level'],
+                    'PAI': row['PAI']
+                })
+        
+        # Create DataFrame for plotting
+        pai_df = pd.DataFrame(pai_data)
+        
+        # Create plot
+        fig = px.bar(
+            pai_df, 
+            x='Class_Level', 
+            y='PAI', 
+            color='Depth',
+            barmode='group',
+            title='PAI Values by Class Level Across Depths',
+            labels={'PAI': 'PAI Value', 'Class_Level': 'Class Level'}
+        )
+        
+        return fig
+
+    def plot_class_level_stability(self, all_results):
+        """Plot stability of class-level PAI values across depths"""
+        # Extract PAI values
+        pai_data = []
+        for result in all_results:
+            depth = result['depth']
+            for _, row in result['pai_results']['pai_results'].iterrows():
+                pai_data.append({
+                    'Depth': depth,
+                    'Class_Level': row['Class_Level'],
+                    'PAI': row['PAI']
+                })
+        
+        # Create DataFrame
+        pai_df = pd.DataFrame(pai_data)
+        
+        # Calculate statistics for each class level
+        class_stats = pai_df.groupby('Class_Level').agg({
+            'PAI': ['mean', 'std', 'min', 'max']
+        }).reset_index()
+        
+        # Rename columns
+        class_stats.columns = ['Class_Level', 'PAI_Mean', 'PAI_StdDev', 'PAI_Min', 'PAI_Max']
+        
+        # Calculate coefficient of variation
+        class_stats['PAI_CV'] = class_stats['PAI_StdDev'] / class_stats['PAI_Mean']
+        
+        # Sort by mean PAI value
+        class_stats = class_stats.sort_values('PAI_Mean', ascending=False)
+        
+        # Create plot
+        fig = go.Figure()
+        
+        # Add bars for mean PAI
+        fig.add_trace(go.Bar(
+            x=class_stats['Class_Level'],
+            y=class_stats['PAI_Mean'],
+            name='Mean PAI',
+            error_y=dict(
+                type='data',
+                array=class_stats['PAI_StdDev'],
+                visible=True
+            )
+        ))
+        
+        # Add CV as text
+        for i, row in enumerate(class_stats.itertuples()):
+            fig.add_annotation(
+                x=row.Class_Level,
+                y=row.PAI_Mean + row.PAI_StdDev + 0.01,
+                text=f"CV: {row.PAI_CV:.2f}",
+                showarrow=False
+            )
+        
+        fig.update_layout(
+            title='Class Level PAI Stability Across Depths',
+            xaxis_title='Class Level',
+            yaxis_title='Mean PAI Value',
+            barmode='group'
+        )
+        
+        return fig
+
 def main():
-    st.set_page_config(page_title="TFA & CARTPAI Analysis", page_icon=":bar_chart:")
-
-    # Load logo (replace 'logo.png' with your actual logo path)
-    st.image("TFA Logo.png", use_column_width=True) 
-
+    st.set_page_config(page_title="Multi-Depth Chemical Analysis", page_icon=":bar_chart:", layout="wide")
+    
+    st.title("Multi-Depth Chemical Analysis with PAI")
+    st.write("""
+    This application performs factor analysis on chemical composition data across multiple depths,
+    and calculates class-level PAI (Predictive Attribute Interaction) values.
+    """)
+    
     # File upload
-    uploaded_file = st.file_uploader("Upload Excel or CSV file", type=["xlsx", "csv"])
-
+    uploaded_file = st.file_uploader("Upload Excel file with multiple sheets (one per depth)", type=["xlsx"])
+    
     if uploaded_file is not None:
+        # Load data from all sheets
         try:
-            if uploaded_file.type == "text/csv":
-                df = pd.read_csv(uploaded_file)
-            else:
-                df = pd.read_excel(uploaded_file)
-
-            # Create an instance of ChemicalAnalysis
+            # Read all sheets
+            xl = pd.ExcelFile(uploaded_file)
+            sheet_names = xl.sheet_names
+            
+            if len(sheet_names) == 0:
+                st.error("No sheets found in the Excel file.")
+                return
+            
+            st.success(f"Found {len(sheet_names)} sheets (depths) in the file.")
+            
+            # Number of factors selection
+            num_factors = st.slider("Select number of factors for analysis", min_value=1, max_value=5, value=3)
+            
+            # Create instance of ChemicalAnalysis
             analysis = ChemicalAnalysis()
-
-            # Analyze the Excel file
-            results_fa = analysis.analyze_excel(df)
-
-            if results_fa:
-                # Display Factor Loadings
-                st.header("Factor Loadings")
-                st.dataframe(results_fa['factor_analysis']['loadings'])
-
-                # User input for manual categorization (optional)
-                manual_categorization = st.checkbox("Manually Categorize Classes and Labels")
-
-                # Download Factor Loadings
+            
+            # Load data from each sheet
+            dfs = []
+            for sheet in sheet_names:
+                df = pd.read_excel(uploaded_file, sheet_name=sheet)
+                dfs.append(df)
+            
+            # Process all depths
+            if st.button("Analyze All Depths"):
+                with st.spinner("Analyzing all depths..."):
+                    all_results = analysis.analyze_multiple_depths(dfs, num_factors)
+                
+                if not all_results:
+                    st.error("Error processing data.")
+                    return
+                
+                # Display results for each depth in expandable sections
+                st.header("Results by Depth")
+                
+                for result in all_results:
+                    depth = result['depth']
+                    
+                    with st.expander(f"Depth {depth}"):
+                        # Display factor loadings
+                        st.subheader(f"Factor Loadings - Depth {depth}")
+                        st.dataframe(result['factor_analysis']['loadings'])
+                        
+                        # Plot factor loadings
+                        fig_loadings = analysis.plot_factor_loadings(result['factor_analysis']['loadings'], f"Depth {depth}")
+                        st.pyplot(fig_loadings)
+                        
+                        # Display categorized scores
+                        st.subheader(f"Categorized Factor Scores - Depth {depth}")
+                        st.dataframe(result['categorized'])
+                        
+                        # Display Gini results
+                        st.subheader(f"Gini Results - Depth {depth}")
+                        for attr, (gini_df, _, weighted_gini) in result['pai_results']['gini_results'].items():
+                            st.write(f"{attr} - Weighted Gini: {weighted_gini:.4f}")
+                            st.dataframe(gini_df)
+                        
+                        # Display PAI results
+                        st.subheader(f"PAI Results - Depth {depth}")
+                        st.dataframe(result['pai_results']['pai_results'])
+                        st.write(f"Total PAI: {result['pai_results']['total_pai']:.4f}")
+                
+                # Comparative analysis
+                st.header("Comparative Analysis Across Depths")
+                
+                # Plot PAI comparison
+                st.subheader("PAI Values by Class Level Across Depths")
+                fig_pai = analysis.plot_pai_comparison(all_results)
+                st.plotly_chart(fig_pai)
+                
+                # Plot class level stability
+                st.subheader("Class Level PAI Stability")
+                fig_stability = analysis.plot_class_level_stability(all_results)
+                st.plotly_chart(fig_stability)
+                
+                # Download combined results
+                st.header("Download Results")
+                
+                # Create Excel file with multiple sheets
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                    # Summary sheet
+                    summary_data = []
+                    for result in all_results:
+                        depth = result['depth']
+                        for _, row in result['pai_results']['pai_results'].iterrows():
+                            summary_data.append({
+                                'Depth': depth,
+                                'Class_Level': row['Class_Level'],
+                                'PAI': row['PAI']
+                            })
+                    
+                    summary_df = pd.DataFrame(summary_data)
+                    summary_df.to_excel(writer, sheet_name='PAI_Summary', index=False)
+                    
+                    # Individual depth sheets
+                    for result in all_results:
+                        depth = result['depth']
+                        # Factor loadings
+                        result['factor_analysis']['loadings'].to_excel(writer, sheet_name=f'D{depth}_Loadings')
+                        # Categorized scores
+                        result['categorized'].to_excel(writer, sheet_name=f'D{depth}_Categories')
+                        # PAI results
+                        result['pai_results']['pai_results'].to_excel(writer, sheet_name=f'D{depth}_PAI', index=False)
+                
+                output.seek(0)
+                
                 st.download_button(
-                    "Download Factor Loadings",
-                    data=results_fa['factor_analysis']['loadings'].to_csv(index=True),
-                    file_name="factor_loadings.csv",
-                    mime="text/csv"
+                    label="Download All Results (Excel)",
+                    data=output,
+                    file_name="multi_depth_analysis_results.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
-
-                #if manual_categorization:
-                    # Handle manual categorization logic here (not implemented)
-
-                # Default categorization and Decision Tree output
-                st.header("Decision Tree Output (Default Categorization)")
-
-                # Create and fit the model
-                df = pd.DataFrame(results_fa['categorized'])
-                dt_pai = DecisionTreePAI()
-                results = dt_pai.fit(df, 'Label')
-
-                # Display Decision Tree (visual or textual)
-                # You can use a library like graphviz or pydotplus for visual representation
-                # Here's a basic textual representation:
-                tree_text = export_text(DecisionTreeClassifier().fit(
-                    df.drop('Label', axis=1), df['Label']
-                ))
-                st.text(tree_text)
-
-                # Display PAI values
-                st.header("PAI Values")
-                st.dataframe(results['pai_results'])
-
+                
         except Exception as e:
-            st.error(f"Error processing file: {e}")
+            st.error(f"Error: {str(e)}")
+            st.write("Please check that your Excel file is properly formatted with one depth per sheet.")
 
 if __name__ == "__main__":
     main()
