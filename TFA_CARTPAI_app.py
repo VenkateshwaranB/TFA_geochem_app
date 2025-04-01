@@ -520,61 +520,16 @@ def add_banner(image_path=None):
     if image_path:
         try:
             image = Image.open(image_path)
-            # Resize image to be more compact (reduce height)
-            original_width, original_height = image.size
-            new_height = min(100, original_height)  # Set max height to 100px
-            new_width = int((new_height / original_height) * original_width)
-            resized_image = image.resize((new_width, new_height))
-            
-            st.image(resized_image, use_column_width=True)
+            st.image(image, use_column_width=True)
         except Exception as e:
             st.error(f"Error loading banner image: {e}")
     else:
-        # Compact, responsive banner using Bootstrap-like styling
+        # Default banner with text
         st.markdown(
             """
-            <style>
-            .banner-container {
-                background-color: #4A5783;
-                border-radius: 5px;
-                padding: 10px 15px;
-                margin-bottom: 20px;
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-                max-height: 90px;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-            }
-            .banner-title {
-                color: white;
-                font-size: 1.5rem;
-                margin: 0;
-                padding: 0;
-                line-height: 1.2;
-            }
-            .banner-subtitle {
-                color: #E0E0E0;
-                font-size: 1rem;
-                margin: 0;
-                padding: 0;
-                line-height: 1.2;
-            }
-            @media (max-width: 768px) {
-                .banner-container {
-                    padding: 8px 12px;
-                    max-height: 80px;
-                }
-                .banner-title {
-                    font-size: 1.2rem;
-                }
-                .banner-subtitle {
-                    font-size: 0.8rem;
-                }
-            }
-            </style>
-            <div class="banner-container">
-                <p class="banner-title">TFA & CARTPAI Analysis</p>
-                <p class="banner-subtitle">Multi-Depth Chemical Analysis with Paleo Affinity Index (PAI)</p>
+            <div style="background-color:#4A5783; padding:10px; border-radius:10px; text-align:center;">
+                <h1 style="color:white;">TFA & CARTPAI Analysis</h1>
+                <h3 style="color:#E0E0E0;">Multi-Depth Chemical Analysis with Paleo Affinity Index (PAI)</h3>
             </div>
             """, 
             unsafe_allow_html=True
