@@ -660,6 +660,18 @@ def main():
             """, 
             unsafe_allow_html=True
         )
+
+        # Download sample data button
+        with open("./sample_data.xlsx", "rb") as f:
+            sample_data = f.read()
+            
+        st.download_button(
+            label="Download Sample Data",
+            data=sample_data,
+            file_name="sample_data.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            help="Download sample data to see the expected format"
+        )
         
         # Run with sample button
         use_sample = st.button(
