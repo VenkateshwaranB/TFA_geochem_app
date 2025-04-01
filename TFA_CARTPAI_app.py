@@ -678,32 +678,42 @@ def main():
             "Run Analysis with Sample Data", 
             help="Click to run the analysis using the sample dataset without uploading it"
         )
-    
-    # Then in the processing section, modify this part:
+
     if uploaded_file is not None or use_sample:
         # Create a divider
         st.markdown('<hr style="margin: 1.5rem 0; border-color: #ddd;">', unsafe_allow_html=True)
         
-        # Determine which data to use
-        if use_sample:
-            st.info("Using sample data for analysis")
-            # Use the existing sample data file instead of generating it
-            file_to_analyze = "./sample_data.xlsx"
-        else:
-            file_to_analyze = uploaded_file
-
         try:
-            # Read all sheets
-            xl = pd.ExcelFile(file_to_analyze)
-            sheet_names = xl.sheet_names
+            # Determine which data to use and load it
+            dfs = []
+            if use_sample:
+                st.info("Using sample data for analysis")
+                # Load sheets from sample data file
+                sample_file_path = "./sample_data.xlsx"
+                xl = pd.ExcelFile(sample_file_path)
+                sheet_names = xl.sheet_names
+                
+                # Read all sheets from the sample file
+                for sheet in sheet_names:
+                    df = pd.read_excel(sample_file_path, sheet_name=sheet)
+                    dfs.append(df)
+            else:
+                # Load sheets from uploaded file
+                xl = pd.ExcelFile(uploaded_file)
+                sheet_names = xl.sheet_names
+                
+                # Read all sheets from the uploaded file
+                for sheet in sheet_names:
+                    df = pd.read_excel(uploaded_file, sheet_name=sheet)
+                    dfs.append(df)
             
             if len(sheet_names) == 0:
-                st.error("No sheets found in the Excel file.")
+                st.error("No sheets found in the file.")
                 return
             
             st.success(f"Found {len(sheet_names)} sheets (depths) in the file.")
             
-            # Analysis parameters in a card-like container
+            # Analysis parameters section
             st.markdown(
                 """
                 <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
@@ -713,7 +723,7 @@ def main():
                 unsafe_allow_html=True
             )
             
-            # Number of factors selection with better explanation
+            # Number of factors selection
             num_factors = st.slider(
                 "Number of factors for analysis", 
                 min_value=1, 
@@ -725,13 +735,7 @@ def main():
             # Create instance of ChemicalAnalysis
             analysis = ChemicalAnalysis()
             
-            # Load data from each sheet
-            dfs = []
-            for sheet in sheet_names:
-                df = pd.read_excel(file_to_analyze, sheet_name=sheet)
-                dfs.append(df)
-            
-            # Process all depths with a more prominent button
+            # Process all depths button
             st.markdown('<div style="text-align: center; margin: 20px 0;">', unsafe_allow_html=True)
             analyze_button = st.button(
                 "Analyze All Depths",
@@ -748,7 +752,7 @@ def main():
                 if not all_results:
                     st.error("Error processing data.")
                     return
-                
+        
                 # Results section with tabs for better organization
                 st.markdown('<div style="margin-top: 30px;">', unsafe_allow_html=True)
                 tabs = st.tabs(["Results by Depth", "Comparative Analysis", "Download Results"])
