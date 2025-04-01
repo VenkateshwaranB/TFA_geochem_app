@@ -4,11 +4,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import io
+from PIL import Image
 from sklearn.preprocessing import StandardScaler
 from factor_analyzer import FactorAnalyzer, calculate_bartlett_sphericity, calculate_kmo
 from sklearn.tree import DecisionTreeClassifier, export_text
 import plotly.express as px
 import plotly.graph_objects as go
+import base64
 
 # Define the factor classes for categorization
 FACTOR_CLASSES = {
@@ -119,7 +121,7 @@ class ClassLevelPAI:
         return pd.DataFrame(gini_data), class_distributions, weighted_gini
 
     def calculate_class_level_pai(self, gini_results):
-        """Calculate PAI values at class level (VLOW, LOW, MEDIUM, HIGH, VHIGH) across factors"""
+        """Calculate Paleo Affinity Index (PAI) values at class level (VLOW, LOW, MEDIUM, HIGH, VHIGH) across factors"""
         # Extract class levels from the data
         class_levels = set()
         for attr in self.attributes:
@@ -442,7 +444,7 @@ class ChemicalAnalysis:
             y='PAI', 
             color='Depth',
             barmode='group',
-            title='PAI Values by Class Level Across Depths',
+            title='Paleo Affinity Index (PAI) Values by Class Level Across Depths',
             labels={'PAI': 'PAI Value', 'Class_Level': 'Class Level'}
         )
         
@@ -503,7 +505,7 @@ class ChemicalAnalysis:
             )
         
         fig.update_layout(
-            title='Class Level PAI Stability Across Depths',
+            title='Class Level Paleo Affinity Index (PAI) Stability Across Depths',
             xaxis_title='Class Level',
             yaxis_title='Mean PAI Value',
             barmode='group'
@@ -511,13 +513,35 @@ class ChemicalAnalysis:
         
         return fig
 
+# Function to add a banner image
+def add_banner(image_path=None):
+    if image_path:
+        try:
+            image = Image.open(image_path)
+            st.image(image, use_column_width=True)
+        except Exception as e:
+            st.error(f"Error loading banner image: {e}")
+    else:
+        # Default banner with text
+        st.markdown(
+            """
+            <div style="background-color:#4A5783; padding:10px; border-radius:10px; text-align:center;">
+                <h1 style="color:white;">TFA & CARTPAI Analysis</h1>
+                <h3 style="color:#E0E0E0;">Multi-Depth Chemical Analysis with Paleo Affinity Index (PAI)</h3>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
+
 def main():
-    st.set_page_config(page_title="Multi-Depth Chemical Analysis", page_icon=":bar_chart:", layout="wide")
+    st.set_page_config(page_title="TFA & CARTPAI Analysis", page_icon=":bar_chart:", layout="wide")
     
-    st.title("Multi-Depth Chemical Analysis with PAI")
+    # Add banner
+    add_banner("./TFA Logo.png")
+    
     st.write("""
     This application performs factor analysis on chemical composition data across multiple depths,
-    and calculates class-level PAI (Predictive Attribute Interaction) values.
+    and calculates class-level Paleo Affinity Index (PAI) values to assist in paleoenvironmental reconstruction.
     """)
     
     # File upload
@@ -583,7 +607,7 @@ def main():
                             st.dataframe(gini_df)
                         
                         # Display PAI results
-                        st.subheader(f"PAI Results - Depth {depth}")
+                        st.subheader(f"Paleo Affinity Index (PAI) Results - Depth {depth}")
                         st.dataframe(result['pai_results']['pai_results'])
                         st.write(f"Total PAI: {result['pai_results']['total_pai']:.4f}")
                 
@@ -591,7 +615,7 @@ def main():
                 st.header("Comparative Analysis Across Depths")
                 
                 # Plot PAI comparison
-                st.subheader("PAI Values by Class Level Across Depths")
+                st.subheader("Paleo Affinity Index (PAI) Values by Class Level Across Depths")
                 fig_pai = analysis.plot_pai_comparison(all_results)
                 st.plotly_chart(fig_pai)
                 
@@ -642,6 +666,15 @@ def main():
         except Exception as e:
             st.error(f"Error: {str(e)}")
             st.write("Please check that your Excel file is properly formatted with one depth per sheet.")
+
+    # Add footer with information
+    st.markdown("---")
+    st.markdown("""
+    <div style="text-align: center;">
+        <h4>TFA & CARTPAI Analysis Tool</h4>
+        <p>Developed for paleoenvironmental reconstruction using Paleo Affinity Index (PAI)</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
