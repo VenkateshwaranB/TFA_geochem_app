@@ -648,7 +648,7 @@ def main():
             type=["xlsx"],
             help="Each sheet should contain chemical element data with elements in the first column"
         )
-    
+    # In the main function, modify the sample data section
     with col2:
         # Sample data option with clearer styling
         st.markdown("### Try Sample Data")
@@ -660,16 +660,6 @@ def main():
             """, 
             unsafe_allow_html=True
         )
-        sample_data = get_sample_data()
-        
-        # Download sample button
-        st.download_button(
-            label="Download Sample Data",
-            data=sample_data,
-            file_name="sample_data.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            help="Download sample data to see the expected format"
-        )
         
         # Run with sample button
         use_sample = st.button(
@@ -677,7 +667,7 @@ def main():
             help="Click to run the analysis using the sample dataset without uploading it"
         )
     
-    # Process either uploaded file or sample data
+    # Then in the processing section, modify this part:
     if uploaded_file is not None or use_sample:
         # Create a divider
         st.markdown('<hr style="margin: 1.5rem 0; border-color: #ddd;">', unsafe_allow_html=True)
@@ -685,12 +675,11 @@ def main():
         # Determine which data to use
         if use_sample:
             st.info("Using sample data for analysis")
-            # Create a temporary file from the sample data
-            sample_data_bytes = get_sample_data()
-            file_to_analyze = sample_data_bytes
+            # Use the existing sample data file instead of generating it
+            file_to_analyze = "./sample_data.xlsx"
         else:
             file_to_analyze = uploaded_file
-        
+
         try:
             # Read all sheets
             xl = pd.ExcelFile(file_to_analyze)
