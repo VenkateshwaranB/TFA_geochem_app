@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import io
+import os
 from PIL import Image
 from sklearn.preprocessing import StandardScaler
 from factor_analyzer import FactorAnalyzer, calculate_bartlett_sphericity, calculate_kmo
@@ -514,29 +515,166 @@ class ChemicalAnalysis:
         return fig
 
 # Function to add a banner image
+# Function to add a responsive banner with compact height
 def add_banner(image_path=None):
     if image_path:
         try:
             image = Image.open(image_path)
-            st.image(image, use_column_width=True)
+            # Resize image to be more compact (reduce height)
+            original_width, original_height = image.size
+            new_height = min(100, original_height)  # Set max height to 100px
+            new_width = int((new_height / original_height) * original_width)
+            resized_image = image.resize((new_width, new_height))
+            
+            st.image(resized_image, use_column_width=True)
         except Exception as e:
             st.error(f"Error loading banner image: {e}")
     else:
-        # Default banner with text
+        # Compact, responsive banner using Bootstrap-like styling
         st.markdown(
             """
-            <div style="background-color:#4A5783; padding:10px; border-radius:10px; text-align:center;">
-                <h1 style="color:white;">TFA & CARTPAI Analysis</h1>
-                <h3 style="color:#E0E0E0;">Multi-Depth Chemical Analysis with Paleo Affinity Index (PAI)</h3>
+            <style>
+            .banner-container {
+                background-color: #4A5783;
+                border-radius: 5px;
+                padding: 10px 15px;
+                margin-bottom: 20px;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                max-height: 90px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            }
+            .banner-title {
+                color: white;
+                font-size: 1.5rem;
+                margin: 0;
+                padding: 0;
+                line-height: 1.2;
+            }
+            .banner-subtitle {
+                color: #E0E0E0;
+                font-size: 1rem;
+                margin: 0;
+                padding: 0;
+                line-height: 1.2;
+            }
+            @media (max-width: 768px) {
+                .banner-container {
+                    padding: 8px 12px;
+                    max-height: 80px;
+                }
+                .banner-title {
+                    font-size: 1.2rem;
+                }
+                .banner-subtitle {
+                    font-size: 0.8rem;
+                }
+            }
+            </style>
+            <div class="banner-container">
+                <p class="banner-title">TFA & CARTPAI Analysis</p>
+                <p class="banner-subtitle">Multi-Depth Chemical Analysis with Paleo Affinity Index (PAI)</p>
             </div>
             """, 
             unsafe_allow_html=True
         )
-
-def main():
-    st.set_page_config(page_title="TFA & CARTPAI Analysis", page_icon=":bar_chart:", layout="wide")
+# Function to create a downloadable sample data file
+def get_sample_data():
+    # Create a sample dataframe that matches the expected format
+    sample_data_1 = pd.DataFrame({
+        'Elements': ['SiO2', 'Al2O3', 'TiO2', 'Fe2O3', 'MgO', 'CaO', 'Na2O', 'K2O', 'MnO', 'P2O5', 'LOI'],
+        'S1': [63.26, 13.36, 0.67, 5.79, 2.98, 2.74, 2.02, 3.28, 0.07, 0.12, 5.73],
+        'S2': [67.16, 12.19, 0.63, 4.66, 2.57, 2.79, 2.21, 2.91, 0.05, 0.11, 5.08],
+        'S3': [67.98, 11.87, 0.64, 4.41, 2.50, 2.85, 2.07, 2.95, 0.06, 0.14, 4.56],
+        'S4': [61.13, 14.74, 0.72, 5.49, 2.99, 3.08, 1.91, 3.54, 0.09, 0.10, 6.23],
+        'S5': [58.31, 14.33, 0.88, 6.47, 2.70, 3.98, 2.07, 3.13, 0.09, 0.12, 7.99],
+        'S6': [60.28, 13.14, 0.82, 5.97, 2.57, 4.34, 2.05, 3.07, 0.10, 0.13, 7.38]
+    })
     
-    # Add banner
+    # Create a second depth with slightly modified values
+    sample_data_2 = pd.DataFrame({
+        'Elements': ['SiO2', 'Al2O3', 'TiO2', 'Fe2O3', 'MgO', 'CaO', 'Na2O', 'K2O', 'MnO', 'P2O5', 'LOI'],
+        'S1': [62.45, 13.98, 0.71, 5.92, 3.05, 2.81, 1.98, 3.31, 0.08, 0.13, 5.58],
+        'S2': [66.87, 12.45, 0.65, 4.78, 2.64, 2.83, 2.18, 2.89, 0.06, 0.12, 5.03],
+        'S3': [67.42, 12.04, 0.67, 4.52, 2.55, 2.91, 2.03, 2.97, 0.07, 0.15, 4.67],
+        'S4': [60.78, 15.02, 0.75, 5.61, 3.07, 3.14, 1.87, 3.58, 0.10, 0.11, 6.32],
+        'S5': [57.96, 14.65, 0.92, 6.58, 2.76, 4.05, 2.03, 3.17, 0.10, 0.13, 8.15],
+        'S6': [59.87, 13.41, 0.85, 6.09, 2.63, 4.42, 2.01, 3.12, 0.11, 0.14, 7.52]
+    })
+    
+    # Create a third depth with different values
+    sample_data_3 = pd.DataFrame({
+        'Elements': ['SiO2', 'Al2O3', 'TiO2', 'Fe2O3', 'MgO', 'CaO', 'Na2O', 'K2O', 'MnO', 'P2O5', 'LOI'],
+        'S1': [64.12, 12.97, 0.63, 5.45, 2.87, 2.62, 2.08, 3.21, 0.06, 0.11, 5.88],
+        'S2': [68.34, 11.85, 0.60, 4.52, 2.48, 2.72, 2.26, 2.84, 0.04, 0.10, 4.97],
+        'S3': [68.87, 11.54, 0.61, 4.28, 2.41, 2.79, 2.12, 2.89, 0.05, 0.13, 4.41],
+        'S4': [62.05, 14.32, 0.68, 5.35, 2.91, 3.01, 1.96, 3.48, 0.08, 0.09, 6.07],
+        'S5': [59.14, 13.98, 0.84, 6.31, 2.63, 3.89, 2.12, 3.07, 0.08, 0.11, 7.83],
+        'S6': [61.25, 12.78, 0.78, 5.82, 2.49, 4.27, 2.10, 3.01, 0.09, 0.12, 7.21]
+    })
+    
+    # Create an Excel file with three sheets
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        sample_data_1.to_excel(writer, sheet_name='Depth_1', index=False)
+        sample_data_2.to_excel(writer, sheet_name='Depth_2', index=False)
+        sample_data_3.to_excel(writer, sheet_name='Depth_3', index=False)
+    
+    output.seek(0)
+    return output
+    
+def main():
+    st.set_page_config(
+        page_title="TFA & CARTPAI Analysis", 
+        page_icon=":bar_chart:", 
+        layout="wide",
+        initial_sidebar_state="collapsed"  # Start with sidebar collapsed for more space
+    )
+    
+    # Add responsive CSS
+    st.markdown("""
+    <style>
+    .main-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 1rem;
+    }
+    .stApp {
+        margin-top: 0 !important;
+    }
+    .block-container {
+        padding-top: 0 !important;
+    }
+    /* Adjust spacing for better content flow */
+    .st-emotion-cache-16txtl3 h1, .st-emotion-cache-16txtl3 h2, .st-emotion-cache-16txtl3 h3 {
+        margin-top: 1rem;
+        margin-bottom: 0.5rem;
+    }
+    /* Make file uploader more compact */
+    .st-emotion-cache-1ol3fgf {
+        padding: 1rem !important;
+    }
+    /* Adjust expander styling */
+    .st-expander {
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        margin-bottom: 10px;
+    }
+    /* Responsive buttons */
+    .stButton button {
+        width: 100%;
+    }
+    @media (max-width: 768px) {
+        .main-container {
+            padding: 0.5rem;
+        }
+    }
+    </style>
+    <div class="main-container">
+    """, unsafe_allow_html=True)
+    
+    # Add compact banner
     add_banner("./TFA Logo.png")
     
     st.write("""
@@ -544,14 +682,63 @@ def main():
     and calculates class-level Paleo Affinity Index (PAI) values to assist in paleoenvironmental reconstruction.
     """)
     
-    # File upload
-    uploaded_file = st.file_uploader("Upload Excel file with multiple sheets (one per depth)", type=["xlsx"])
+    # Create columns for file upload and sample data options with responsive layout
+    col1, col2 = st.columns([2, 1])
     
-    if uploaded_file is not None:
-        # Load data from all sheets
+    with col1:
+        # File upload with clearer instructions
+        st.markdown("### Upload Your Data")
+        uploaded_file = st.file_uploader(
+            "Excel file with multiple sheets (one sheet per depth)",
+            type=["xlsx"],
+            help="Each sheet should contain chemical element data with elements in the first column"
+        )
+    
+    with col2:
+        # Sample data option with clearer styling
+        st.markdown("### Try Sample Data")
+        st.markdown(
+            """
+            <div style="background-color: #f0f2f6; padding: 10px; border-radius: 5px; margin-bottom: 10px;">
+                <p style="margin: 0;">New to the tool? Try our sample dataset with three depths of geochemical data.</p>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
+        sample_data = get_sample_data()
+        
+        # Download sample button
+        st.download_button(
+            label="Download Sample Data",
+            data=sample_data,
+            file_name="sample_data.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            help="Download sample data to see the expected format"
+        )
+        
+        # Run with sample button
+        use_sample = st.button(
+            "Run Analysis with Sample Data", 
+            help="Click to run the analysis using the sample dataset without uploading it"
+        )
+    
+    # Process either uploaded file or sample data
+    if uploaded_file is not None or use_sample:
+        # Create a divider
+        st.markdown('<hr style="margin: 1.5rem 0; border-color: #ddd;">', unsafe_allow_html=True)
+        
+        # Determine which data to use
+        if use_sample:
+            st.info("Using sample data for analysis")
+            # Create a temporary file from the sample data
+            sample_data_bytes = get_sample_data()
+            file_to_analyze = sample_data_bytes
+        else:
+            file_to_analyze = uploaded_file
+        
         try:
             # Read all sheets
-            xl = pd.ExcelFile(uploaded_file)
+            xl = pd.ExcelFile(file_to_analyze)
             sheet_names = xl.sheet_names
             
             if len(sheet_names) == 0:
@@ -560,8 +747,24 @@ def main():
             
             st.success(f"Found {len(sheet_names)} sheets (depths) in the file.")
             
-            # Number of factors selection
-            num_factors = st.slider("Select number of factors for analysis", min_value=1, max_value=5, value=3)
+            # Analysis parameters in a card-like container
+            st.markdown(
+                """
+                <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
+                    <h4 style="margin-top: 0;">Analysis Parameters</h4>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+            
+            # Number of factors selection with better explanation
+            num_factors = st.slider(
+                "Number of factors for analysis", 
+                min_value=1, 
+                max_value=5, 
+                value=3,
+                help="Select the number of factors to extract in the factor analysis"
+            )
             
             # Create instance of ChemicalAnalysis
             analysis = ChemicalAnalysis()
@@ -569,99 +772,128 @@ def main():
             # Load data from each sheet
             dfs = []
             for sheet in sheet_names:
-                df = pd.read_excel(uploaded_file, sheet_name=sheet)
+                df = pd.read_excel(file_to_analyze, sheet_name=sheet)
                 dfs.append(df)
             
-            # Process all depths
-            if st.button("Analyze All Depths"):
-                with st.spinner("Analyzing all depths..."):
+            # Process all depths with a more prominent button
+            st.markdown('<div style="text-align: center; margin: 20px 0;">', unsafe_allow_html=True)
+            analyze_button = st.button(
+                "Analyze All Depths",
+                key="analyze_button",
+                help="Start the analysis process for all depths",
+                use_container_width=True
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            if analyze_button:
+                with st.spinner("Analyzing all depths... This may take a moment."):
                     all_results = analysis.analyze_multiple_depths(dfs, num_factors)
                 
                 if not all_results:
                     st.error("Error processing data.")
                     return
                 
-                # Display results for each depth in expandable sections
-                st.header("Results by Depth")
+                # Results section with tabs for better organization
+                st.markdown('<div style="margin-top: 30px;">', unsafe_allow_html=True)
+                tabs = st.tabs(["Results by Depth", "Comparative Analysis", "Download Results"])
                 
-                for result in all_results:
-                    depth = result['depth']
-                    
-                    with st.expander(f"Depth {depth}"):
-                        # Display factor loadings
-                        st.subheader(f"Factor Loadings - Depth {depth}")
-                        st.dataframe(result['factor_analysis']['loadings'])
-                        
-                        # Plot factor loadings
-                        fig_loadings = analysis.plot_factor_loadings(result['factor_analysis']['loadings'], f"Depth {depth}")
-                        st.pyplot(fig_loadings)
-                        
-                        # Display categorized scores
-                        st.subheader(f"Categorized Factor Scores - Depth {depth}")
-                        st.dataframe(result['categorized'])
-                        
-                        # Display Gini results
-                        st.subheader(f"Gini Results - Depth {depth}")
-                        for attr, (gini_df, _, weighted_gini) in result['pai_results']['gini_results'].items():
-                            st.write(f"{attr} - Weighted Gini: {weighted_gini:.4f}")
-                            st.dataframe(gini_df)
-                        
-                        # Display PAI results
-                        st.subheader(f"Paleo Affinity Index (PAI) Results - Depth {depth}")
-                        st.dataframe(result['pai_results']['pai_results'])
-                        st.write(f"Total PAI: {result['pai_results']['total_pai']:.4f}")
-                
-                # Comparative analysis
-                st.header("Comparative Analysis Across Depths")
-                
-                # Plot PAI comparison
-                st.subheader("Paleo Affinity Index (PAI) Values by Class Level Across Depths")
-                fig_pai = analysis.plot_pai_comparison(all_results)
-                st.plotly_chart(fig_pai)
-                
-                # Plot class level stability
-                st.subheader("Class Level PAI Stability")
-                fig_stability = analysis.plot_class_level_stability(all_results)
-                st.plotly_chart(fig_stability)
-                
-                # Download combined results
-                st.header("Download Results")
-                
-                # Create Excel file with multiple sheets
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    # Summary sheet
-                    summary_data = []
+                # Tab 1: Results by Depth
+                with tabs[0]:
                     for result in all_results:
                         depth = result['depth']
-                        for _, row in result['pai_results']['pai_results'].iterrows():
-                            summary_data.append({
-                                'Depth': depth,
-                                'Class_Level': row['Class_Level'],
-                                'PAI': row['PAI']
-                            })
-                    
-                    summary_df = pd.DataFrame(summary_data)
-                    summary_df.to_excel(writer, sheet_name='PAI_Summary', index=False)
-                    
-                    # Individual depth sheets
-                    for result in all_results:
-                        depth = result['depth']
-                        # Factor loadings
-                        result['factor_analysis']['loadings'].to_excel(writer, sheet_name=f'D{depth}_Loadings')
-                        # Categorized scores
-                        result['categorized'].to_excel(writer, sheet_name=f'D{depth}_Categories')
-                        # PAI results
-                        result['pai_results']['pai_results'].to_excel(writer, sheet_name=f'D{depth}_PAI', index=False)
+                        
+                        with st.expander(f"Depth {depth}", expanded=(depth == 1)):
+                            # Create columns for better layout
+                            col1, col2 = st.columns([1, 1])
+                            
+                            with col1:
+                                # Display factor loadings
+                                st.subheader(f"Factor Loadings - Depth {depth}")
+                                st.dataframe(result['factor_analysis']['loadings'], use_container_width=True)
+                            
+                            with col2:
+                                # Plot factor loadings
+                                fig_loadings = analysis.plot_factor_loadings(result['factor_analysis']['loadings'], f"Depth {depth}")
+                                st.pyplot(fig_loadings)
+                            
+                            # Display categorized scores
+                            st.subheader(f"Categorized Factor Scores - Depth {depth}")
+                            st.dataframe(result['categorized'], use_container_width=True)
+                            
+                            # Display Gini results
+                            st.subheader(f"Gini Results - Depth {depth}")
+                            for attr, (gini_df, _, weighted_gini) in result['pai_results']['gini_results'].items():
+                                st.write(f"{attr} - Weighted Gini: {weighted_gini:.4f}")
+                                st.dataframe(gini_df, use_container_width=True)
+                            
+                            # Display PAI results
+                            st.subheader(f"Paleo Affinity Index (PAI) Results - Depth {depth}")
+                            st.dataframe(result['pai_results']['pai_results'], use_container_width=True)
+                            st.write(f"Total PAI: {result['pai_results']['total_pai']:.4f}")
                 
-                output.seek(0)
+                # Tab 2: Comparative Analysis
+                with tabs[1]:
+                    # Plot PAI comparison
+                    st.subheader("Paleo Affinity Index (PAI) Values by Class Level Across Depths")
+                    fig_pai = analysis.plot_pai_comparison(all_results)
+                    st.plotly_chart(fig_pai, use_container_width=True)
+                    
+                    # Plot class level stability
+                    st.subheader("Class Level PAI Stability")
+                    fig_stability = analysis.plot_class_level_stability(all_results)
+                    st.plotly_chart(fig_stability, use_container_width=True)
                 
-                st.download_button(
-                    label="Download All Results (Excel)",
-                    data=output,
-                    file_name="multi_depth_analysis_results.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                # Tab 3: Download Results
+                with tabs[2]:
+                    # Create Excel file with multiple sheets
+                    output = io.BytesIO()
+                    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                        # Summary sheet
+                        summary_data = []
+                        for result in all_results:
+                            depth = result['depth']
+                            for _, row in result['pai_results']['pai_results'].iterrows():
+                                summary_data.append({
+                                    'Depth': depth,
+                                    'Class_Level': row['Class_Level'],
+                                    'PAI': row['PAI']
+                                })
+                        
+                        summary_df = pd.DataFrame(summary_data)
+                        summary_df.to_excel(writer, sheet_name='PAI_Summary', index=False)
+                        
+                        # Individual depth sheets
+                        for result in all_results:
+                            depth = result['depth']
+                            # Factor loadings
+                            result['factor_analysis']['loadings'].to_excel(writer, sheet_name=f'D{depth}_Loadings')
+                            # Categorized scores
+                            result['categorized'].to_excel(writer, sheet_name=f'D{depth}_Categories')
+                            # PAI results
+                            result['pai_results']['pai_results'].to_excel(writer, sheet_name=f'D{depth}_PAI', index=False)
+                    
+                    output.seek(0)
+                    
+                    # Better styled download section
+                    st.markdown(
+                        """
+                        <div style="background-color: #e9f7fe; padding: 20px; border-radius: 5px; text-align: center; margin: 20px 0;">
+                            <h4>Download Complete Analysis Results</h4>
+                            <p>The Excel file contains all analysis results with separate sheets for each depth.</p>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                    
+                    st.download_button(
+                        label="Download All Results (Excel)",
+                        data=output,
+                        file_name="multi_depth_analysis_results.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                
+                st.markdown('</div>', unsafe_allow_html=True)
                 
         except Exception as e:
             st.error(f"Error: {str(e)}")
@@ -670,11 +902,14 @@ def main():
     # Add footer with information
     st.markdown("---")
     st.markdown("""
-    <div style="text-align: center;">
-        <h4>TFA & CARTPAI Analysis Tool</h4>
-        <p>Developed for paleoenvironmental reconstruction using Paleo Affinity Index (PAI)</p>
+    <div style="text-align: center; margin-top: 30px; padding: 10px; background-color: #f8f9fa; border-radius: 5px;">
+        <h5 style="margin: 0; color: #4A5783;">TFA & CARTPAI Analysis Tool</h5>
+        <p style="margin: 5px 0 0 0; font-size: 0.9rem; color: #666;">Developed for paleoenvironmental reconstruction using Paleo Affinity Index (PAI)</p>
     </div>
     """, unsafe_allow_html=True)
+    
+    # Close main container div
+    st.markdown('</div>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
